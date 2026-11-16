@@ -23,7 +23,10 @@ const WM_TRAY: u32 = WM_APP + 1;
 const WM_UPDATE: u32 = WM_APP + 2;
 const WM_REMOVE: u32 = WM_APP + 3;
 const WM_BALLOON: u32 = WM_APP + 4;
-const ICON_ID: u32 = 1;
+/// The icon's id and its window's class (the update window finds the icon
+/// with these, to open on its screen).
+pub const ICON_ID: u32 = 1;
+pub const WINDOW_CLASS: &str = "DeskLinkTray";
 /// Retries adding the icon until the taskbar takes it (at sign-in DeskLink
 /// may start before the taskbar exists).
 const RETRY_TIMER: usize = 1;
@@ -147,7 +150,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 fn run(tx: Sender<TrayEvent>, ready: Sender<Result<usize, String>>) {
     follow_system_dark_mode();
-    let class = wide("DeskLinkTray");
+    let class = wide(WINDOW_CLASS);
     let wc = WNDCLASSW {
         lpfnWndProc: Some(wndproc),
         hInstance: unsafe { GetModuleHandleW(std::ptr::null()) },

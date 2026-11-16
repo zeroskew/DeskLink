@@ -693,7 +693,14 @@ pub fn run_update() -> Result<(), String> {
     w.on_dismiss(move || {
         let _ = slint::quit_event_loop();
     });
-    w.run().map_err(err)
+    w.show().map_err(err)?;
+    // Centred on the screen with DeskLink's tray icon.
+    let size = w.window().size().to_logical(w.window().scale_factor());
+    if let Some((x, y)) = desklink_win::display::centred_on_tray_screen(size.width, size.height, 32.0) {
+        w.window().set_position(slint::PhysicalPosition::new(x, y));
+    }
+    slint::run_event_loop().map_err(err)?;
+    w.hide().map_err(err)
 }
 
 fn show(paths: Paths, page: i32) -> Result<(), slint::PlatformError> {
