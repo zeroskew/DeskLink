@@ -864,7 +864,7 @@ fn run(
                     }
                     show_status(&tray, enabled, &connected, &cfg);
                 }
-                Ok(TrayEvent::CheckUpdate) => update::check(true),
+                Ok(TrayEvent::CheckUpdate) => update::check_with_dialog(),
                 Ok(TrayEvent::ApplyUpdate) => {
                     log::info!("restarting to update");
                     update::install_on_exit(true);

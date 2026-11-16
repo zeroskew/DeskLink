@@ -225,6 +225,43 @@ pub fn is_ready() -> bool {
     READY.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
+/// The tray's "Check for updates": check, in a dialog that follows it live
+/// and shows the result ("Restart now" once an update is downloaded). Notification
+/// balloons aren't enough: Windows drops them when notifications are off.
+pub fn check_with_dialog() {
+    static OPEN: AtomicBool = AtomicBool::new(false);
+    if OPEN.swap(true, Ordering::SeqCst) {
+        return; // already showing
+    }
+    check(false);
+    let _ = std::thread::Builder::new().name("dl-update-dialog".into()).spawn(|| {
+        use desklink_win::ui::UpdateView;
+        let restart = desklink_win::ui::update_dialog(VERSION, &mut || match status() {
+            Status::Idle | Status::Checking | Status::NotRunning => UpdateView::Busy { text: "Checking GitHub for a new release…".into(), progress: None },
+            Status::Downloading { tag, done, total } => UpdateView::Busy {
+                text: if total > 0 { format!("Downloading {tag}: {} of {}…", mb(done), mb(total)) } else { format!("Downloading {tag}: {}…", mb(done)) },
+                progress: Some((done, total)),
+            },
+            Status::UpToDate(tag) => UpdateView::Done { ok: true, main: "DeskLink is up to date".into(), text: format!("This is v{VERSION}; the latest release is {tag}.") },
+            Status::Failed(e) => UpdateView::Done { ok: false, main: "Couldn't check for updates".into(), text: format!("{}.", capitalize(&e)) },
+            Status::Ready(tag) => UpdateView::Ready {
+                main: format!("DeskLink {tag} is downloaded"),
+                text: "Restart now to install it: DeskLink exits, updates and starts again (a few seconds without sharing). Later: it installs when you exit DeskLink from the tray, or pick Restart to update in the tray menu.".into(),
+            },
+        });
+        OPEN.store(false, Ordering::SeqCst);
+        if restart {
+            // The main loop picks this up like the settings window's button.
+            desklink_win::instance::request_update_apply();
+        }
+    });
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
 /// Check for (and download) a newer release on a thread. `tell` (the tray's
 /// "Check for updates"): also say in a balloon when there's nothing new or
 /// it failed. Nothing happens while a check runs or once an update is ready.
