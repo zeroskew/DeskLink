@@ -403,7 +403,7 @@ enum Stop {
 fn start(paths: &Paths, mut cfg: Config) -> Result<(), String> {
     // Every mouse move waits for DeskLink: run ahead of ordinary programs
     // (the main loop handles input; the hook thread raises itself further).
-    desklink_win::raise_process_priority();
+    set_priority(cfg.priority);
     desklink_win::raise_thread_priority(false);
     let tray = Tray::start()?;
     // The settings window shows the log through this pipe.
@@ -1087,6 +1087,7 @@ fn needs_restart(old: &Config, new: &Config) -> bool {
         c.log = Default::default();
         // The self-update picks these up by itself.
         c.updates = Default::default();
+        c.priority = Default::default();
         // Handled on its own: a hand-over to an elevated copy.
         c.run_as_admin = false;
         for p in &mut c.peers {
@@ -1108,6 +1109,15 @@ fn needs_restart(old: &Config, new: &Config) -> bool {
 fn corner_guard(cfg: &Config) -> Option<i32> {
     (!cfg.cursor.switch_at_corners).then_some(cfg.cursor.corner_size as i32)
 }
+fn set_priority(p: config::Priority) {
+    use desklink_win::ProcessPriority as P;
+    desklink_win::set_process_priority(match p {
+        config::Priority::Normal => P::Normal,
+        config::Priority::AboveNormal => P::AboveNormal,
+        config::Priority::High => P::High,
+    });
+}
+
 fn apply_live(cfg: &Config, core: &mut Core, io: &mut WinIo<'_>, capture: &Capture) {
     for (i, p) in cfg.peers.iter().enumerate() {
         core.set_edge(i, p.side.into());
@@ -1121,6 +1131,7 @@ fn apply_live(cfg: &Config, core: &mut Core, io: &mut WinIo<'_>, capture: &Captu
     core.set_park((cfg.cursor.method != config::HideMethod::None).then(|| cfg.cursor.park.into()));
     capture.set_drift_filter(cfg.local_activity.min_mouse_move, cfg.local_activity.window_ms);
     update::configure(&cfg.updates);
+    set_priority(cfg.priority);
     match (hotkey::parse(&cfg.hotkeys.return_to_local), hotkey::parse(&cfg.hotkeys.paste_files)) {
         (Ok((mods, key)), Ok((pmods, pkey))) => capture.set_hotkeys(vec![
             Hotkey { id: HK_RETURN, modifiers: mods, key, release_grab: true },

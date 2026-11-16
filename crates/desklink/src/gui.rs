@@ -1,7 +1,7 @@
 //! Settings window (`desklink settings`): edits desklink.cfg. Runs as its own
 //! process so a graphics-driver problem can never take input sharing down.
 
-use desklink_config::{Config, FilesMode, HideMethod, OnConflict, ParkAt, Paths, Peer, Role, Side};
+use desklink_config::{Config, FilesMode, HideMethod, OnConflict, ParkAt, Paths, Peer, Priority, Role, Side};
 use crate::layout::{Desk, PlacedPeer, Rect};
 use desklink_proto::Monitor;
 use sha2::{Digest, Sha256};
@@ -20,6 +20,7 @@ const CONFLICTS: [OnConflict; 4] = [OnConflict::Ask, OnConflict::Overwrite, OnCo
 const PARKS: [ParkAt; 5] = [ParkAt::TopLeft, ParkAt::TopRight, ParkAt::BottomLeft, ParkAt::BottomRight, ParkAt::Center];
 const METHODS: [HideMethod; 3] = [HideMethod::Transparent, HideMethod::ParkOnly, HideMethod::None];
 const ROLES: [Role; 3] = [Role::Peer, Role::Master, Role::Client];
+const PRIORITIES: [Priority; 3] = [Priority::Normal, Priority::AboveNormal, Priority::High];
 
 fn index_of<T: PartialEq>(all: &[T], v: &T) -> i32 {
     all.iter().position(|x| x == v).unwrap_or(0) as i32
@@ -303,6 +304,7 @@ fn read_settings(s: &State, cfg: &mut Config) -> Result<(), String> {
     cfg.log.file = s.get_log_file();
     cfg.role = ROLES[s.get_role().clamp(0, 2) as usize];
     cfg.run_as_admin = s.get_run_as_admin();
+    cfg.priority = PRIORITIES[s.get_priority().clamp(0, 2) as usize];
     cfg.security.enabled = s.get_sec_enabled();
     cfg.updates.auto_check = s.get_auto_update();
     Ok(())
@@ -341,6 +343,7 @@ fn show_settings(s: &State, cfg: &Config, paths: &Paths) {
     s.set_log_file(cfg.log.file);
     s.set_role(index_of(&ROLES, &cfg.role));
     s.set_run_as_admin(cfg.run_as_admin);
+    s.set_priority(index_of(&PRIORITIES, &cfg.priority));
     s.set_sec_enabled(cfg.security.enabled);
     s.set_auto_update(cfg.updates.auto_check);
 }

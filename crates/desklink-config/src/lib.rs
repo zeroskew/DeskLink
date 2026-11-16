@@ -23,6 +23,9 @@ pub struct Config {
     /// also work in elevated programs' windows.
     #[serde(default = "default_true")]
     pub run_as_admin: bool,
+    /// Windows priority of the DeskLink process (changes live).
+    #[serde(default)]
+    pub priority: Priority,
     #[serde(default)]
     pub cursor: CursorSettings,
     #[serde(default)]
@@ -366,6 +369,18 @@ impl Peer {
     pub fn unplaced(name: impl Into<String>) -> Peer {
         Peer { unplaced: true, ..Peer::new(name, Side::Left) }
     }
+}
+
+/// How DeskLink competes with other programs for the CPU. Every mouse move
+/// waits for it, so it should never wait its turn behind a busy program.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Priority {
+    Normal,
+    #[default]
+    AboveNormal,
+    /// Ahead of everything but the system's own real-time work.
+    High,
 }
 
 /// How this PC works with the others.

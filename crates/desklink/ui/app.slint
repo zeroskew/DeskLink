@@ -169,6 +169,8 @@ export global State {
     callback run-as-admin-changed(bool);
     // Peer, master, client.
     in-out property <int> role;
+    // Process priority: normal, above normal, high.
+    in-out property <int> priority: 1;
     // DeskLink PCs announcing themselves, not set up yet.
     in property <[FoundPc]> found;
     callback add-found(string, string);
@@ -463,20 +465,57 @@ component Card inherits Rectangle {
     }
 }
 
-/// A labelled setting with its control on the right.
+/// A small "?" that shows `tip` as a tooltip while hovered.
+component HelpMark inherits Rectangle {
+    in property <string> tip;
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: ta.has-hover ? Theme.accent : #4a4e58;
+    background: ta.has-hover ? Theme.accent-soft : transparent;
+    Text {
+        text: "?";
+        color: ta.has-hover ? white : #8a8f9a;
+        font-size: 10px;
+        font-weight: 700;
+    }
+    ta := TouchArea {
+        mouse-cursor: help;
+        changed has-hover => {
+            if self.has-hover {
+                State.tip-hover(root.tip, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+            } else {
+                State.tip-leave();
+            }
+        }
+    }
+}
+
+/// A labelled setting with its control on the right. `hint` is a short line
+/// under the label; longer explanations go in `help` (a "?" with a tooltip).
 component Setting inherits HorizontalLayout {
     in property <string> label;
     in property <string> hint;
+    in property <string> help;
     spacing: 16px;
-    min-height: 36px;
     VerticalLayout {
         horizontal-stretch: 1;
         alignment: center;
         spacing: 2px;
-        Text {
-            text: root.label;
-            color: #d8dade;
-            font-size: 13px;
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Text {
+                text: root.label;
+                color: #d8dade;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            if root.help != "": VerticalLayout {
+                alignment: center;
+                HelpMark { tip: root.help; }
+            }
         }
         if root.hint != "": Text {
             text: root.hint;
@@ -485,7 +524,10 @@ component Setting inherits HorizontalLayout {
             wrap: word-wrap;
         }
     }
+    // The 36px row minimum sits here, not on the row: an explicit min-height
+    // replaces the computed one, which let wrapped hints overlap the next row.
     VerticalLayout {
+        min-height: 36px;
         alignment: center;
         @children
     }
@@ -1422,7 +1464,7 @@ component SettingsPage inherits ScrollView {
                     }
                     Setting {
                         label: "Switch at screen corners";
-                        hint: "Off: the corners of the screens don't lead to another PC, so aiming at a close button or the Start button never switches by accident.";
+                        help: "Off: the corners of the screens don't lead to another PC, so aiming at a close button or the Start button never switches by accident.";
                         Toggle {
                             on <=> State.switch-at-corners;
                             tip: "Only real corners count; where two of your screens meet, the cursor still crosses";
@@ -1442,7 +1484,7 @@ component SettingsPage inherits ScrollView {
                     }
                     Setting {
                         label: "Leave games holding the mouse";
-                        hint: "Off: while a game holds the mouse (pointer hidden, e.g. Unreal's Game mode), the cursor stays in it: no crossing to another PC or onto your other screens. In its menus (UI mode) the cursor moves freely.";
+                        help: "Off: while a game holds the mouse (pointer hidden, e.g. Unreal's Game mode), the cursor stays in it: no crossing to another PC or onto your other screens. In its menus (UI mode) the cursor moves freely.";
                         Toggle {
                             on <=> State.switch-in-fullscreen;
                             tip: "Open the game's menu, Alt+Tab or press Win to move the cursor freely again";
@@ -1459,7 +1501,7 @@ component SettingsPage inherits ScrollView {
                     title: "General";
                     Setting {
                         label: "Role";
-                        hint: State.role == 0 ? "Connects only to other peers. Each PC sets up its own neighbours (one per side)." : State.role == 1 ? "Connects only to clients. This PC's keyboard and mouse drive them all." : "Connects only to a master: the first one that connects is kept.";
+                        help: State.role == 0 ? "Connects only to other peers. Each PC sets up its own neighbours (one per side)." : State.role == 1 ? "Connects only to clients. This PC's keyboard and mouse drive them all." : "Connects only to a master: the first one that connects is kept.";
                         Segmented {
                             items: ["Peer", "Master", "Client"];
                             tips: ["Every PC sets up its own neighbours (up to four, one per side); any PC's keyboard and mouse can move to the others", "This PC's keyboard and mouse drive all the others: it holds the whole layout and finds clients on the network", "Driven by a master only: announces itself on the network and accepts the first master that connects (then only that one)"];
@@ -1469,11 +1511,21 @@ component SettingsPage inherits ScrollView {
                     }
                     Setting {
                         label: "Run as administrator";
-                        hint: State.is-elevated ? "Running as administrator now. The other PC's keyboard and mouse work in admin windows; dragging files in from normal programs doesn't." : "Lets the other PC's keyboard and mouse use admin windows (Task Manager, installers). Windows asks when DeskLink starts. Dragging files in from normal programs then stops working.";
+                        help: State.is-elevated ? "Running as administrator now. The other PC's keyboard and mouse work in admin windows; dragging files in from normal programs doesn't." : "Lets the other PC's keyboard and mouse use admin windows (Task Manager, installers). Windows asks when DeskLink starts. Dragging files in from normal programs then stops working.";
                         Toggle {
                             on <=> State.run-as-admin;
                             tip: "Windows blocks input from normal programs into programs running as administrator";
                             toggled(on) => { State.run-as-admin-changed(on); }
+                        }
+                    }
+                    Setting {
+                        label: "Priority";
+                        help: State.priority == 0 ? "Same as ordinary programs. The cursor may lag while the PC is busy." : State.priority == 1 ? "Ahead of ordinary programs. DeskLink uses little CPU, so this costs them almost nothing." : "Ahead of nearly everything. Try this if the cursor still lags while the PC is busy (builds, games).";
+                        Segmented {
+                            items: ["Normal", "Above normal", "High"];
+                            tips: ["Windows' normal priority", "Recommended", "Windows' high priority: only system work comes first"];
+                            current <=> State.priority;
+                            selected => { State.changed(); }
                         }
                     }
                     Setting {
@@ -1531,7 +1583,7 @@ component SettingsPage inherits ScrollView {
                     }
                     Setting {
                         label: "Check automatically";
-                        hint: "A minute after DeskLink starts, then twice a day. It installs when you restart DeskLink.";
+                        help: "A minute after DeskLink starts, then twice a day. It installs when you restart DeskLink.";
                         Toggle {
                             on <=> State.auto-update;
                             toggled => { State.changed(); }

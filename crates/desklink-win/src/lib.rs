@@ -58,11 +58,28 @@ pub fn on_hard_crash(handler: fn(String)) {
     unsafe { SetUnhandledExceptionFilter(Some(filter)) };
 }
 
-/// Run DeskLink above normal priority: it uses little CPU, but every mouse
-/// move waits for it, so a busy PC must not make it wait its turn.
-pub fn raise_process_priority() {
-    use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass};
-    unsafe { SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS) };
+/// Windows priority class for the whole process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessPriority {
+    Normal,
+    AboveNormal,
+    High,
+}
+
+/// Set DeskLink's priority class: it uses little CPU, but every mouse move
+/// waits for it, so a busy PC must not make it wait its turn.
+pub fn set_process_priority(p: ProcessPriority) {
+    use windows_sys::Win32::System::Threading::{
+        ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, HIGH_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS, SetPriorityClass,
+    };
+    let class = match p {
+        ProcessPriority::Normal => NORMAL_PRIORITY_CLASS,
+        ProcessPriority::AboveNormal => ABOVE_NORMAL_PRIORITY_CLASS,
+        ProcessPriority::High => HIGH_PRIORITY_CLASS,
+    };
+    if unsafe { SetPriorityClass(GetCurrentProcess(), class) } == 0 {
+        log::warn!("couldn't set the process priority to {p:?}: {}", std::io::Error::last_os_error());
+    }
 }
 
 /// Raise the calling thread: `critical` for the input hooks (Windows holds
