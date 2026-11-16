@@ -272,10 +272,19 @@ impl Drop for SettingsLock {
 /// One settings window per session: `None` if one is open already (it is
 /// brought to the front instead).
 pub fn settings_lock(window_title: &str) -> Option<SettingsLock> {
+    window_lock("Local\\DeskLinkSettings", window_title)
+}
+
+/// One update window per session (`desklink update`), like the settings window.
+pub fn update_window_lock(window_title: &str) -> Option<SettingsLock> {
+    window_lock("Local\\DeskLinkUpdateWindow", window_title)
+}
+
+fn window_lock(mutex: &str, window_title: &str) -> Option<SettingsLock> {
     use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
     use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow};
-    let name = wide("Local\\DeskLinkSettings");
+    let name = wide(mutex);
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     if h.is_null() || unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
         return Some(SettingsLock(h));

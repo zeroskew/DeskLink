@@ -6,6 +6,7 @@
 //!   desklink info                         name, fingerprint, monitors, config path
 //!   desklink stop                         ask the running DeskLink to exit cleanly
 //!   desklink settings                     open the settings window
+//!   desklink update                       check for updates (in a window)
 //!   desklink --version                    the build version (release tag
 //!                                         without the "v")
 //!
@@ -83,6 +84,15 @@ fn main() {
     let migrated = paths.migrate_legacy();
     let command = args.first().map(String::as_str);
     let starting = matches!(command, None | Some("run"));
+    if command == Some("update") {
+        // "Check for updates" from the tray: its own window and process.
+        if let Err(e) = gui::run_update() {
+            eprintln!("{e}");
+            ui::show_error("DeskLink", &e);
+            std::process::exit(1);
+        }
+        return;
+    }
     if command == Some("settings") || (starting && desklink_win::instance::is_running()) {
         // Its own process, without the log: the running DeskLink owns that.
         // Starting DeskLink again just opens the window.
@@ -169,13 +179,15 @@ fn relaunch_elevated(paths: &Paths) -> bool {
         }
     }
 }
-/// Open the settings window (its own process; a second one just brings the
-/// open window to the front).
-fn open_settings(paths: &Paths) {
+/// Open the settings window or the update window (`command`: "settings" or
+/// "update"). Each runs as its own process, so a graphics-driver problem can
+/// never take input sharing down; a second one just brings the open window to
+/// the front.
+fn open_window(paths: &Paths, command: &str) {
     let Ok(exe) = std::env::current_exe() else { return };
     desklink_win::instance::allow_foreground_handoff();
     let spawned = std::process::Command::new(exe)
-        .arg("settings")
+        .arg(command)
         .arg("--config")
         .arg(&paths.config)
         .stdin(std::process::Stdio::null())
@@ -183,7 +195,7 @@ fn open_settings(paths: &Paths) {
         .stderr(std::process::Stdio::null())
         .spawn();
     if let Err(e) = spawned {
-        log::error!("cannot open the settings window: {e}");
+        log::error!("cannot open the {command} window: {e}");
     }
 }
 
@@ -423,7 +435,7 @@ fn start(paths: &Paths, mut cfg: Config) -> Result<(), String> {
     })?;
     if cfg.peers.is_empty() {
         log::warn!("no other PCs yet: add one in the settings window");
-        open_settings(paths);
+        open_window(paths, "settings");
     }
 
     // A previous run may have died with the cursor hidden; and never leave
@@ -850,7 +862,7 @@ fn run(
                 core.on_local(&mut io, Local::DragCaught(offer), Instant::now());
             }
             recv(tray.events()) -> ev => match ev {
-                Ok(TrayEvent::Open) => open_settings(paths),
+                Ok(TrayEvent::Open) => open_window(paths, "settings"),
                 Ok(TrayEvent::Toggle) => {
                     enabled = !enabled;
                     if enabled {
@@ -864,7 +876,7 @@ fn run(
                     }
                     show_status(&tray, enabled, &connected, &cfg);
                 }
-                Ok(TrayEvent::CheckUpdate) => update::check_with_dialog(),
+                Ok(TrayEvent::CheckUpdate) => open_window(paths, "update"),
                 Ok(TrayEvent::ApplyUpdate) => {
                     log::info!("restarting to update");
                     update::install_on_exit(true);

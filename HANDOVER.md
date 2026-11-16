@@ -92,6 +92,12 @@ The PCs it's used on:
   start and every `[updates] check_every_hours` (12); a newer tag's
   `desklink.zip` is downloaded to `%LOCALAPPDATA%\DeskLink\update`. Tray
   balloon + "Restart to update" in the tray menu and Settings > Updates.
+  Tray "Check for updates" opens the update window (`desklink update`, Slint
+  `UpdateWindow`, its own process like the settings window): it asks the
+  daemon to check, follows the "update" pipe (moving bar, download
+  progress), offers Restart now / Later, and closes when DeskLink exits.
+  Balloons alone aren't enough: Windows drops them when notifications are
+  off (they are on the dev PC).
   Installs on "Restart to update" (restarts) or tray Exit, not on
   `desklink stop` (build.cmd uses that to copy in a fresh build). The
   embedded relauncher (`relauncher.rs`, compiled by build.rs with the same
@@ -103,6 +109,10 @@ The PCs it's used on:
   medium integrity label (`instance::create_event`), so a normal process
   (a settings window the user opened, `desklink stop` from a terminal) can
   signal an elevated DeskLink.
+- The elevated copy is started with SW_HIDE (no console flash), and
+  Windows applies that to the first window a process shows. The tray window
+  uses it up at start (`ShowWindow(SW_HIDE)`), or the first message box or
+  dialog of the daemon stays invisible.
 - `attach_parent_console` leaves a stdout that is redirected to a file or
   pipe alone, so `desklink --version` can be captured by scripts.
 

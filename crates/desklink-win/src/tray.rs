@@ -164,6 +164,11 @@ fn run(tx: Sender<TrayEvent>, ready: Sender<Result<usize, String>>) {
         let _ = ready.send(Err(format!("tray window: {}", std::io::Error::last_os_error())));
         return;
     }
+    // Windows applies the show mode DeskLink was started with to the first
+    // window it shows. The elevated copy is started hidden (no console
+    // flash), which would hide the first dialog (updates, a message). Use it
+    // up on this window, which stays hidden anyway.
+    unsafe { ShowWindow(hwnd, SW_HIDE) };
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
     STATE.set(Some(State {
         tx,

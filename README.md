@@ -50,6 +50,7 @@ Command line:
 
     desklink.exe              start in the tray (if it already runs: open the settings window)
     desklink.exe settings     open the settings window
+    desklink.exe update       check for updates, in a window (tray > Check for updates)
     desklink.exe stop         stop the running DeskLink
     desklink.exe info         this PC's name, identity and peers
     desklink.exe --version    the build version

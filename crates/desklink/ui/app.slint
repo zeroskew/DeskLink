@@ -1750,3 +1750,137 @@ export component App inherits Window {
         }
     }
 }
+
+/// "Check for updates" from the tray (`desklink update`): follows the running
+/// DeskLink's check and download, and offers to restart into a new version.
+export component UpdateWindow inherits Window {
+    title: "DeskLink updates";
+    icon: @image-url("icon.png");
+    width: 480px;
+    height: 224px;
+    background: Theme.bg;
+    default-font-size: 13px;
+
+    in property <string> version;
+    // 0 up to date, 1 checking or downloading, 2 downloaded, 3 failed,
+    // 4 DeskLink isn't running.
+    in property <int> kind: 1;
+    in property <string> headline: "Checking for updates";
+    in property <string> detail: "Asking GitHub for the latest release…";
+    // 0..1 while downloading; below 0: waiting (moving bar).
+    in property <float> progress: -1;
+    callback check-again();
+    callback restart();
+    callback dismiss();
+
+    property <color> tone: kind == 2 || kind == 0 ? Theme.green : kind == 3 ? Theme.red : kind == 4 ? Theme.orange : Theme.accent;
+
+    VerticalLayout {
+        Rectangle {
+            height: 68px;
+            HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 34px;
+                        height: 34px;
+                        source: @image-url("icon.png");
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: "DeskLink updates";
+                        color: #4d9fff;
+                        font-size: 18px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: "This is version " + root.version;
+                        color: Theme.muted;
+                        font-size: 12px;
+                    }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+        VerticalLayout {
+            padding: 22px;
+            padding-top: 18px;
+            spacing: 8px;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 9px;
+                        height: 9px;
+                        border-radius: 4.5px;
+                        background: root.tone;
+                    }
+                }
+                Text {
+                    text: root.headline;
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+            }
+            Text {
+                text: root.detail;
+                color: Theme.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            if root.kind == 1: Rectangle {
+                height: 6px;
+                border-radius: 3px;
+                background: Theme.sunken;
+                clip: true;
+                // Waiting: a block sliding across. Downloading: the share done.
+                property <float> phase: mod(animation-tick() / 1ms, 1400) / 1400;
+                Rectangle {
+                    x: root.progress < 0 ? (parent.width * 1.35 * phase - parent.width * 0.35) : 0;
+                    width: root.progress < 0 ? parent.width * 0.35 : parent.width * clamp(root.progress, 0, 1);
+                    height: parent.height;
+                    border-radius: 3px;
+                    background: Theme.accent;
+                    animate width { duration: 150ms; }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                if root.kind == 2: Button {
+                    text: "Later";
+                    clicked => { root.dismiss(); }
+                }
+                if root.kind == 2: Button {
+                    text: "Restart now";
+                    primary: true;
+                    clicked => { root.restart(); }
+                }
+                if root.kind == 0 || root.kind == 3: Button {
+                    text: "Check again";
+                    clicked => { root.check-again(); }
+                }
+                if root.kind != 2: Button {
+                    text: root.kind == 1 ? "Hide" : "Close";
+                    primary: root.kind != 1;
+                    clicked => { root.dismiss(); }
+                }
+            }
+        }
+    }
+}

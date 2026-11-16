@@ -571,13 +571,133 @@ fn follow_log(app: slint::Weak<App>) {
     });
 }
 
-fn show(paths: Paths, page: i32) -> Result<(), slint::PlatformError> {
+fn select_backend() -> Result<(), slint::PlatformError> {
     // Windows draws a light title bar unless the window asks for the dark theme.
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("femtovg".into())
         .with_winit_window_attributes_hook(|a| a.with_theme(Some(slint::winit_030::winit::window::Theme::Dark)))
-        .select()?;
+        .select()
+}
+
+/// The update window's text for a status: kind (see `UpdateWindow`),
+/// headline, detail, progress (below 0: waiting).
+fn update_view(status: &crate::update::Status) -> (i32, String, String, f32) {
+    use crate::update::{Status, mb};
+    match status {
+        Status::Idle | Status::Checking => (1, "Checking for updates".into(), "Asking GitHub for the latest release…".into(), -1.0),
+        Status::Downloading { tag, done, total } => (
+            1,
+            format!("Downloading {tag}"),
+            if *total > 0 { format!("{} of {}", mb(*done), mb(*total)) } else { mb(*done) },
+            if *total > 0 { *done as f32 / *total as f32 } else { -1.0 },
+        ),
+        Status::UpToDate(tag) => (0, "DeskLink is up to date".into(), format!("The latest release is {tag}."), 0.0),
+        Status::Ready(tag) => (
+            2,
+            format!("DeskLink {tag} is ready to install"),
+            "Restart now: DeskLink exits, installs it and starts again (a few seconds without sharing). Later: it installs when you exit DeskLink from the tray.".into(),
+            0.0,
+        ),
+        Status::Failed(e) => {
+            let mut c = e.chars();
+            let e: String = c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default();
+            (3, "Couldn't check for updates".into(), format!("{e}."), 0.0)
+        }
+        Status::NotRunning => (4, "DeskLink isn't running".into(), "Start DeskLink first: it checks for updates while it runs.".into(), 0.0),
+    }
+}
+
+fn show_update_view(w: &UpdateWindow, status: &crate::update::Status) {
+    let (kind, headline, detail, progress) = update_view(status);
+    w.set_kind(kind);
+    w.set_headline(headline.into());
+    w.set_detail(detail.into());
+    w.set_progress(progress);
+}
+
+/// The update window (`desklink update`, from the tray's "Check for
+/// updates"): asks the running DeskLink to check, follows the check and the
+/// download through its "update" pipe, and passes "Restart now" on. Closes
+/// when DeskLink exits (it must not hold the exe while it's replaced).
+pub fn run_update() -> Result<(), String> {
+    use crate::update::Status;
+    const TITLE: &str = "DeskLink updates";
+    let Some(_one_window) = desklink_win::instance::update_window_lock(TITLE) else {
+        return Ok(()); // already open: brought to the front
+    };
+    let err = |e: slint::PlatformError| format!("update window: {e}");
+    select_backend().map_err(err)?;
+    let w = UpdateWindow::new().map_err(err)?;
+    w.set_version(crate::update::VERSION.into());
+
+    let weak = w.as_weak();
+    let deliver = move |status: Status| {
+        let weak = weak.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(w) = weak.upgrade() {
+                show_update_view(&w, &status);
+            }
+        });
+    };
+    let _ = std::thread::Builder::new().name("dl-update-window".into()).spawn(move || {
+        use std::io::{BufRead, BufReader};
+        // DeskLink may be starting: give it a moment before saying it isn't running.
+        let mut pipe = None;
+        for _ in 0..10 {
+            if let Ok(p) = desklink_win::pipe::connect("update") {
+                pipe = Some(p);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let Some(pipe) = pipe else {
+            deliver(Status::NotRunning);
+            return;
+        };
+        let mut first = true;
+        for line in BufReader::new(pipe).lines() {
+            let Ok(line) = line else { break };
+            let status = Status::parse(&line);
+            if first {
+                first = false;
+                // Opening the window means "check now", unless a check runs
+                // or an update is already waiting.
+                if !matches!(status, Status::Checking | Status::Downloading { .. } | Status::Ready(_)) {
+                    desklink_win::instance::request_update_check();
+                    deliver(Status::Checking);
+                    continue;
+                }
+            }
+            deliver(status);
+        }
+        // DeskLink exited (or restarts to update): go with it.
+        let _ = slint::invoke_from_event_loop(|| {
+            let _ = slint::quit_event_loop();
+        });
+    });
+
+    let weak = w.as_weak();
+    w.on_check_again(move || {
+        let Some(w) = weak.upgrade() else { return };
+        if desklink_win::instance::request_update_check() {
+            show_update_view(&w, &Status::Checking);
+        } else {
+            show_update_view(&w, &Status::NotRunning);
+        }
+    });
+    w.on_restart(move || {
+        desklink_win::instance::request_update_apply();
+        let _ = slint::quit_event_loop();
+    });
+    w.on_dismiss(move || {
+        let _ = slint::quit_event_loop();
+    });
+    w.run().map_err(err)
+}
+
+fn show(paths: Paths, page: i32) -> Result<(), slint::PlatformError> {
+    select_backend()?;
 
     let app = App::new()?;
     app.set_page(page);
