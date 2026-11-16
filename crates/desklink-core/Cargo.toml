@@ -1,0 +1,10 @@
+[package]
+name = "desklink-core"
+description = "DeskLink platform-neutral logic: screen geometry and the switching state machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+desklink-proto.workspace = true
+log.workspace = true

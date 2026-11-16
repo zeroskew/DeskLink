@@ -1,0 +1,23 @@
+[package]
+name = "desklink-net"
+description = "DeskLink transport: QUIC with pinned self-signed certificates, heartbeats, auto-reconnect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+desklink-proto.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "fs", "io-util"] }
+quinn = { version = "0.11", default-features = false, features = ["log", "runtime-tokio", "rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = "0.14"
+sha2 = "0.10"
+lz4_flex = "0.14"
+blake3 = { version = "1.8", features = ["pure"] }
+postcard.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "desklink-config"
+description = "DeskLink's desklink.cfg: settings shared by the daemon and the settings window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+desklink-proto.workspace = true
+desklink-core = { path = "../desklink-core" }
+serde.workspace = true
+toml = "0.9"

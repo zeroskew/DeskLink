@@ -1,0 +1,28 @@
+[package]
+name = "desklink"
+description = "DeskLink daemon: share one keyboard and mouse between computers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+desklink-proto.workspace = true
+desklink-core = { path = "../desklink-core" }
+desklink-net = { path = "../desklink-net" }
+desklink-win.workspace = true
+desklink-config = { path = "../desklink-config" }
+crossbeam-channel.workspace = true
+log.workspace = true
+env_logger.workspace = true
+serde.workspace = true
+# Settings window (`desklink settings`, its own process). FemtoVG (OpenGL):
+# vsync'd, smooth scrolling, ~85 MB only while the window is open.
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg", "unstable-winit-030"] }
+sha2 = "0.10"
+# Self-update: GitHub's release info, and unpacking the release zip.
+serde_json = "1"
+miniz_oxide = "0.8"
+
+[build-dependencies]
+slint-build = "1.18"
+embed-resource = "3"

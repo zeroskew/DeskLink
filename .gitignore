@@ -1,0 +1,13 @@
+/target
+# dist\ holds this PC's identity (desklink.key, desklink.cert) and config: never commit it.
+/dist
+/backups
+*.pdb
+*.png
+!screenshots/*.png
+!crates/**/*.png
+desklink.key
+desklink.cert
+desklink.cfg
+desklink.log*
+.claude/settings.local.json

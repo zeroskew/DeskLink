@@ -1,0 +1,1752 @@
+// DeskLink settings window.
+import { ListView, ScrollView } from "std-widgets.slint";
+
+global Theme {
+    out property <color> bg: #141518;
+    out property <color> panel: #1b1c21;
+    out property <color> card: #1e1f25;
+    out property <color> sunken: #16171b;
+    out property <color> border: #2b2d34;
+    out property <color> text: #e8e9ec;
+    out property <color> muted: #8b8f9a;
+    out property <color> accent: #2f8cff;
+    out property <color> accent-soft: #1d3a63;
+    out property <color> green: #34d399;
+    out property <color> orange: #f5a524;
+    out property <color> red: #ff3b5c;
+}
+
+export struct Mon {
+    name: string,
+    res: string,
+    owner: string,
+    local: bool,
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    selected: bool,
+    // "This PC", "Peer", "Client", "Master".
+    badge: string,
+}
+
+export struct LogLine {
+    text: string,
+    level: int, // 0 info, 1 warn, 2 error, 3 debug
+}
+
+/// A PC in the Layout tab's list.
+export struct LayoutItem {
+    name: string,
+    placed: bool,
+}
+/// A place on one side of this PC where another PC plugs in.
+/// A DeskLink PC heard on the network.
+export struct FoundPc {
+    name: string,
+    address: string,
+    role: string,
+    fingerprint: string,
+    // Its role fits ours; otherwise `note` says why not.
+    compatible: bool,
+    note: string,
+}
+
+export struct Slot {
+    side: int, // left, right, top, bottom
+    label: string,
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    occupied: bool,
+    // A dragged PC would land here.
+    target: bool,
+}
+
+export struct Device {
+    name: string,
+    address: string,
+    side: string,
+    fingerprint: string,
+    local: bool,
+}
+
+/// Everything the window shows and edits; filled and saved by Rust.
+export global State {
+    // This PC
+    in property <string> pc-name;
+    in property <string> pc-port;
+    in property <string> pc-fingerprint;
+    in property <string> config-path;
+    // Status line under the header (saved, errors, ...).
+    in property <string> status;
+    in property <bool> status-error;
+
+    // Clipboard and files
+    in-out property <bool> clip-enabled;
+    in-out property <bool> clip-text;
+    in-out property <bool> clip-images;
+    in-out property <bool> clip-private;
+    in-out property <bool> clip-files;
+    in-out property <int> on-conflict; // ask, overwrite, rename, skip
+    in-out property <int> files-mode; // auto, dialog
+    in-out property <string> max-file-mb;
+    in-out property <string> max-total-mb;
+    in-out property <string> max-clip-mb;
+
+    // Cursor
+    in-out property <int> hide-method; // transparent, park-only, none
+    in-out property <int> park; // bottom-right, bottom-left, top-right, top-left, center
+    in-out property <bool> hide-directing;
+    in-out property <bool> hide-released;
+    in-out property <bool> reveal-mouse;
+    in-out property <bool> reveal-keyboard;
+    in-out property <bool> switch-at-corners;
+    in-out property <string> corner-size;
+    in-out property <bool> switch-in-fullscreen;
+
+    // Local activity
+    in-out property <string> min-move;
+    in-out property <string> window-ms;
+
+    // Hotkeys (shown as key caps)
+    in property <[string]> hk-return;
+    in property <[string]> hk-paste;
+
+    // Log
+    in-out property <bool> log-file;
+
+    // Devices
+    in property <[Device]> devices;
+    in-out property <string> new-name;
+    in-out property <string> new-address;
+    callback add-peer();
+    callback remove-peer(int);
+
+    // Layout
+    in property <[Mon]> monitors;
+    in property <[Slot]> slots;
+    // The PCs in the list, placed on the layout or not.
+    in property <[LayoutItem]> layout-pcs;
+    // A PC from the list dropped at x, y (canvas).
+    callback drop-new(string, length, length);
+    in property <bool> layout-dirty;
+    // A client shows its master's layout: no editing, and a note why.
+    in property <bool> layout-readonly;
+    in property <string> layout-note;
+    // Short version for the header ("Read-only · ...").
+    in property <string> layout-lock;
+    callback select(int);
+    callback drag(int, length, length);
+    callback drop(int);
+    callback apply-layout();
+    callback revert-layout();
+
+    // Log (the running DeskLink's, through a pipe)
+    in property <[LogLine]> log-lines;
+    in property <int> log-version;
+    in property <string> log-status;
+    in-out property <bool> log-follow: true;
+    callback log-copy();
+    callback log-clear();
+
+    // Tooltip: shown below (or above) the hovered control after a moment.
+    in property <string> tip-text;
+    in property <length> tip-x;
+    in property <length> tip-y;
+    in property <length> tip-w;
+    in property <length> tip-h;
+    in property <bool> tip-shown;
+    callback tip-hover(string, length, length, length, length);
+    callback tip-leave();
+
+    // Start with Windows (stored in Windows, not in desklink.cfg).
+    in-out property <bool> start-with-windows;
+    // Run as administrator (in desklink.cfg); and whether we do now.
+    in-out property <bool> run-as-admin;
+    in property <bool> is-elevated;
+    callback run-as-admin-changed(bool);
+    // Peer, master, client.
+    in-out property <int> role;
+    // DeskLink PCs announcing themselves, not set up yet.
+    in property <[FoundPc]> found;
+    callback add-found(string, string);
+    // "Scan network": listening for a couple of seconds.
+    in property <bool> scanning;
+    callback scan();
+    callback start-with-windows-changed(bool);
+
+    // Self-update (done by the running DeskLink; shown here).
+    in property <string> version;
+    // 0 nothing to do, 1 checking or downloading, 2 downloaded (restart to
+    // install), 3 failed, 4 DeskLink isn't running.
+    in property <int> update-kind;
+    in property <string> update-text;
+    in-out property <bool> auto-update;
+    callback update-check();
+    callback update-apply();
+
+    // Security: who may connect.
+    in-out property <bool> sec-enabled;
+    in property <[string]> sec-networks;
+    in property <[string]> sec-allowed;
+    in-out property <string> sec-new-network;
+    in-out property <string> sec-new-pc;
+    // This PC's own network, offered as a one-click add ("" = unknown).
+    in property <string> sec-suggested;
+    // Configured PCs not allowed yet (they won't connect while it's on).
+    in property <[string]> sec-missing;
+    callback sec-add-network(string);
+    callback sec-remove-network(int);
+    callback sec-add-pc(string);
+    callback sec-remove-pc(int);
+
+    /// Any setting changed: save.
+    callback changed();
+    /// Typing in a text box: saved once typing pauses.
+    callback typed();
+    // Short confirmation at the bottom ("Saved", errors).
+    in property <string> toast;
+    in property <bool> toast-error;
+    in property <bool> toast-shown;
+}
+
+component Badge inherits Rectangle {
+    in property <string> text;
+    in property <color> fg: #5aa9ff;
+    height: 20px;
+    width: label.preferred-width + 16px;
+    border-radius: 10px;
+    background: fg.with-alpha(0.14);
+    label := Text {
+        text: root.text;
+        color: root.fg;
+        font-size: 11px;
+        font-weight: 600;
+    }
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    callback clicked;
+    height: 32px;
+    width: label.preferred-width + 28px;
+    border-radius: 7px;
+    border-width: primary ? 0 : 1px;
+    border-color: Theme.border;
+    opacity: enabled ? 1 : 0.45;
+    background: primary ? (ta.has-hover && enabled ? #4a9dff : Theme.accent) : (ta.has-hover && enabled ? #2a2c33 : #202127);
+    label := Text {
+        text: root.text;
+        color: root.primary ? white : root.danger ? Theme.red : Theme.text;
+        font-size: 13px;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if self.has-hover && root.tip != "" {
+                State.tip-hover(root.tip, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+            } else {
+                State.tip-leave();
+            }
+        }
+    }
+}
+
+component Segmented inherits Rectangle {
+    in property <[string]> items;
+    /// Tooltip per item (optional).
+    in property <[string]> tips;
+    /// Draw each item as a small screen with a dot (top-left, top-right,
+    /// bottom-left, bottom-right, center) instead of its text.
+    in property <bool> corner-icons;
+    in-out property <int> current;
+    in property <length> item-width: 0px;
+    callback selected(int);
+    property <[float]> dot-x: [0, 1, 0, 1, 0.5];
+    property <[float]> dot-y: [0, 0, 1, 1, 0.5];
+    height: 34px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.sunken;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 3px;
+        for it[i] in root.items: Rectangle {
+            // Sized for the bold (selected) text, so selecting never resizes.
+            min-width: root.item-width > 0 ? root.item-width : root.corner-icons ? 44px : bold.preferred-width + 24px;
+            border-radius: 6px;
+            background: i == root.current ? Theme.accent-soft : ta.has-hover ? #22242a : transparent;
+            animate background { duration: 120ms; }
+            bold := Text {
+                text: it;
+                font-size: 13px;
+                font-weight: 600;
+                visible: false;
+            }
+            if !root.corner-icons: Text {
+                text: it;
+                color: i == root.current ? white : #9aa0ab;
+                font-size: 13px;
+                font-weight: i == root.current ? 600 : 400;
+            }
+            if root.corner-icons: Rectangle {
+                width: 22px;
+                height: 15px;
+                border-radius: 2px;
+                border-width: 1.5px;
+                border-color: i == root.current ? white : #9aa0ab;
+                Rectangle {
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 2.5px;
+                    x: 2.5px + (parent.width - 10px) * root.dot-x[i];
+                    y: 2.5px + (parent.height - 10px) * root.dot-y[i];
+                    background: i == root.current ? white : #9aa0ab;
+                }
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    if root.current != i {
+                        root.current = i;
+                        root.selected(i);
+                    }
+                }
+                changed has-hover => {
+                    if self.has-hover && root.tips.length > i {
+                        State.tip-hover(root.tips[i], self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+                    } else {
+                        State.tip-leave();
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Toggle inherits Rectangle {
+    in-out property <bool> on;
+    in property <string> tip;
+    callback toggled(bool);
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background: on ? Theme.accent : #3a3d46;
+    animate background { duration: 120ms; }
+    Rectangle {
+        width: 16px;
+        height: 16px;
+        y: 3px;
+        x: root.on ? root.width - 19px : 3px;
+        border-radius: 8px;
+        background: white;
+        animate x { duration: 120ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.on = !root.on;
+            root.toggled(root.on);
+        }
+        changed has-hover => {
+            if self.has-hover && root.tip != "" {
+                State.tip-hover(root.tip, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+            } else {
+                State.tip-leave();
+            }
+        }
+    }
+}
+
+/// Single-line text box; `edited` fires when the user changes the text.
+component Field inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <string> suffix;
+    in property <bool> digits;
+    /// Every keystroke (saved after a pause).
+    callback edited(string);
+    /// Enter: done editing (saved now).
+    callback accepted(string);
+    preferred-width: 130px;
+    max-width: 130px;
+    height: 32px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+    background: Theme.sunken;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Rectangle {
+            horizontal-stretch: 1;
+            input := TextInput {
+                width: 100%;
+                text <=> root.text;
+                color: Theme.text;
+                font-size: 13px;
+                vertical-alignment: center;
+                single-line: true;
+                input-type: root.digits ? InputType.number : InputType.text;
+                edited => { root.edited(self.text); }
+                accepted => {
+                    self.clear-focus();
+                    root.accepted(self.text);
+                }
+            }
+            if root.text == "" && !input.has-focus: Text {
+                x: 0;
+                text: root.placeholder;
+                color: #5f6470;
+                font-size: 13px;
+            }
+        }
+        if root.suffix != "": Text {
+            text: root.suffix;
+            color: Theme.muted;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component Keycap inherits Rectangle {
+    in property <string> text;
+    height: 26px;
+    width: t.preferred-width + 16px;
+    border-radius: 6px;
+    background: #26282f;
+    border-width: 1px;
+    border-color: #383a43;
+    t := Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: 12px;
+        font-weight: 600;
+    }
+}
+
+component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.card;
+    VerticalLayout {
+        padding: 18px;
+        alignment: start;
+        spacing: 12px;
+        if root.title != "": Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: 15px;
+            font-weight: 600;
+        }
+        if root.subtitle != "": Text {
+            text: root.subtitle;
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        @children
+    }
+}
+
+/// A labelled setting with its control on the right.
+component Setting inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    spacing: 16px;
+    min-height: 36px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: root.label;
+            color: #d8dade;
+            font-size: 13px;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: #737885;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        @children
+    }
+}
+
+component Tile inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    height: 58px;
+    border-radius: 9px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.sunken;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 4px;
+        Text {
+            text: root.label;
+            color: Theme.muted;
+            font-size: 11px;
+        }
+        Text {
+            text: root.value;
+            color: Theme.text;
+            font-size: 13px;
+            overflow: elide;
+        }
+    }
+}
+
+component PageTitle inherits VerticalLayout {
+    in property <string> kicker;
+    in property <string> title;
+    in property <string> subtitle;
+    spacing: 4px;
+    Text {
+        text: root.kicker;
+        color: Theme.muted;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2px;
+    }
+    Text {
+        text: root.title;
+        color: #f2f3f5;
+        font-size: 26px;
+        font-weight: 700;
+    }
+    if root.subtitle != "": Text {
+        text: root.subtitle;
+        color: Theme.muted;
+        font-size: 13px;
+        wrap: word-wrap;
+    }
+}
+
+component LayoutPage inherits Rectangle {
+    // A PC being dragged in from the list (canvas coordinates).
+    property <bool> ghost;
+    property <string> ghost-name;
+    property <length> gx;
+    property <length> gy;
+    /// "Change in Settings" next to the role.
+    callback open-settings();
+    /// An empty side was clicked: add a PC there.
+    callback add-at(int);
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 10px;
+            PageTitle {
+                kicker: "DEVICE LAYOUT";
+                title: "Screen layout";
+            }
+            VerticalLayout {
+                alignment: end;
+                padding-left: 16px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        height: 32px;
+                        width: role-text.preferred-width + 24px;
+                        border-radius: 16px;
+                        border-width: 1px;
+                        border-color: #2c4366;
+                        background: #1a2638;
+                        role-text := Text {
+                            text: State.role == 0 ? "Role: Peer  ·  connects only to other peers" : State.role == 1 ? "Role: Master  ·  connects only to clients" : "Role: Client  ·  connects only to a master";
+                            color: #9cc4ff;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                    }
+                    Button {
+                        text: "Change in Settings";
+                        tip: "The role is set in Settings → General";
+                        clicked => { root.open-settings(); }
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if State.layout-readonly: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 32px;
+                    width: lock-text.preferred-width + 24px;
+                    border-radius: 16px;
+                    border-width: 1px;
+                    border-color: #5a4a26;
+                    background: #2a2416;
+                    lock-text := Text {
+                        text: State.layout-lock;
+                        color: Theme.orange;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                }
+            }
+            if !State.layout-readonly: VerticalLayout {
+                alignment: center;
+                Badge {
+                    text: State.layout-dirty ? "Unsaved" : "Saved";
+                    fg: State.layout-dirty ? Theme.orange : Theme.green;
+                }
+            }
+            if !State.layout-readonly: VerticalLayout {
+                alignment: center;
+                Button {
+                    text: "Revert";
+                    enabled: State.layout-dirty;
+                    clicked => { State.revert-layout(); }
+                }
+            }
+            if !State.layout-readonly: VerticalLayout {
+                alignment: center;
+                Button {
+                    text: "Apply";
+                    primary: true;
+                    enabled: State.layout-dirty;
+                    clicked => { State.apply-layout(); }
+                }
+            }
+        }
+        HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 14px;
+        canvas := Rectangle {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: #17181c;
+            clip: true;
+            for i in 80: Rectangle {
+                x: i * 32px;
+                width: 1px;
+                height: canvas.height;
+                background: #ffffff08;
+            }
+            for i in 50: Rectangle {
+                y: i * 32px;
+                height: 1px;
+                width: canvas.width;
+                background: #ffffff08;
+            }
+            // The four places another PC can plug in.
+            for s in State.slots: Rectangle {
+                x: s.x;
+                y: s.y;
+                width: s.w;
+                height: s.h;
+                border-radius: 8px;
+                // A PC dragged from the list is over this spot.
+                property <bool> hot: root.ghost && root.gx >= s.x && root.gx <= s.x + s.w && root.gy >= s.y && root.gy <= s.y + s.h;
+                border-width: s.target || hot ? 2px : 1px;
+                border-color: s.target || hot ? Theme.accent : slot-ta.has-hover && !s.occupied ? #4a4e5a : #2e3139;
+                background: s.target || hot ? #2f8cff22 : slot-ta.has-hover && !s.occupied ? #ffffff0a : #ffffff04;
+                animate background, border-color { duration: 120ms; }
+                if !s.occupied: VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    Text {
+                        text: "+";
+                        color: #6b7080;
+                        font-size: 22px;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: s.label;
+                        color: #6b7080;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                    }
+                }
+                slot-ta := TouchArea {
+                    enabled: !s.occupied;
+                    mouse-cursor: s.occupied ? default : pointer;
+                    clicked => { root.add-at(s.side); }
+                }
+            }
+            for m[i] in State.monitors: Rectangle {
+                x: m.x;
+                y: m.y;
+                width: m.w;
+                height: m.h;
+                border-radius: 8px;
+                border-width: m.selected ? 2px : 1px;
+                border-color: m.selected ? Theme.accent : #3a3d46;
+                background: m.local ? #20222a : #1b2d4a;
+                drop-shadow-blur: m.selected ? 18px : 0px;
+                drop-shadow-color: #2f8cff40;
+                Text {
+                    x: 12px;
+                    y: 10px;
+                    width: parent.width - 90px;
+                    text: m.name;
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+                Badge {
+                    x: parent.width - self.width - 8px;
+                    y: 8px;
+                    text: m.badge;
+                    fg: m.local ? #5aa9ff : Theme.green;
+                }
+                Text {
+                    text: m.owner;
+                    color: #b5b9c3;
+                    font-size: 14px;
+                }
+                Text {
+                    x: 12px;
+                    y: parent.height - 24px;
+                    text: m.res;
+                    color: Theme.muted;
+                    font-size: 11px;
+                }
+                TouchArea {
+                    enabled: !State.layout-readonly;
+                    mouse-cursor: m.local || State.layout-readonly ? default : move;
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            State.select(i);
+                        } else if e.kind == PointerEventKind.up {
+                            State.drop(i);
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            State.drag(i, self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                        }
+                    }
+                }
+            }
+            // A PC dragged in from the list, following the cursor.
+            if root.ghost: Rectangle {
+                x: root.gx - 70px;
+                y: root.gy - 40px;
+                width: 140px;
+                height: 80px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: Theme.accent;
+                background: #1b2d4acc;
+                Text {
+                    text: root.ghost-name;
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+            }
+        }
+        if !State.layout-readonly: Rectangle {
+            width: 230px;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: Theme.card;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+                alignment: start;
+                Text {
+                    text: "Your PCs";
+                    color: Theme.text;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Drag a PC into a free spot next to a screen.";
+                    color: Theme.muted;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+                if State.layout-pcs.length == 0: Text {
+                    text: "None yet: add PCs in Devices.";
+                    color: #737885;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                for p in State.layout-pcs: Rectangle {
+                    height: 48px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: p.placed ? Theme.border : #2c4366;
+                    background: p.placed ? Theme.sunken : item-ta.has-hover ? #1f2a3b : #1a2433;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: p.name;
+                                color: Theme.text;
+                                font-size: 13px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: p.placed ? "On the layout" : "Drag onto the layout";
+                                color: p.placed ? Theme.muted : #9cc4ff;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                    item-ta := TouchArea {
+                        enabled: !p.placed;
+                        mouse-cursor: p.placed ? default : move;
+                        moved => {
+                            if self.pressed {
+                                root.ghost = true;
+                                root.ghost-name = p.name;
+                                root.gx = self.absolute-position.x + self.mouse-x - canvas.absolute-position.x;
+                                root.gy = self.absolute-position.y + self.mouse-y - canvas.absolute-position.y;
+                            }
+                        }
+                        pointer-event(e) => {
+                            if e.kind == PointerEventKind.up && root.ghost {
+                                root.ghost = false;
+                                if root.gx >= 0 && root.gy >= 0 && root.gx <= canvas.width && root.gy <= canvas.height {
+                                    State.drop-new(p.name, root.gx, root.gy);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+        Text {
+            text: State.layout-readonly ? State.layout-note : "Drag a PC next to a screen: it attaches centred on the nearest free edge, and the cursor crosses where the screens touch. A PC never moved takes the whole side. Real screens show once it has connected.";
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+component DevicesPage inherits VerticalLayout {
+    /// "Change in Settings" next to the role.
+    callback open-settings();
+    spacing: 16px;
+    alignment: start;
+    HorizontalLayout {
+        spacing: 16px;
+        PageTitle {
+            kicker: "CONNECTIONS";
+            title: "Devices";
+            subtitle: "PCs DeskLink connects to. Each is trusted on its first connection; Remove forgets it. Put them on the screen layout in the Layout tab.";
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    height: 32px;
+                    width: dev-role.preferred-width + 24px;
+                    border-radius: 16px;
+                    border-width: 1px;
+                    border-color: #2c4366;
+                    background: #1a2638;
+                    dev-role := Text {
+                        text: State.role == 0 ? "Role: Peer  ·  connects only to other peers" : State.role == 1 ? "Role: Master  ·  connects only to clients" : "Role: Client  ·  connects only to a master";
+                        color: #9cc4ff;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                }
+                Button {
+                    text: "Change in Settings";
+                    tip: "The role is set in Settings → General";
+                    clicked => { root.open-settings(); }
+                }
+            }
+        }
+    }
+    Card {
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                Text {
+                    text: "On your network";
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: State.role == 0 ? "DeskLink PCs announcing themselves, not set up here yet. A peer connects only to peers." : State.role == 1 ? "DeskLink PCs announcing themselves, not set up here yet. A master connects only to clients." : "DeskLink PCs announcing themselves. A client connects only to a master; the master adds it.";
+                    color: Theme.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Button {
+                    text: State.scanning ? "Scanning…" : "Scan network";
+                    enabled: !State.scanning;
+                    tip: "Listen for DeskLink PCs on this network (each announces itself every second)";
+                    clicked => { State.scan(); }
+                }
+            }
+        }
+        if State.found.length == 0: Text {
+            text: State.scanning ? "Listening for DeskLink PCs…" : "No other DeskLink heard. Is DeskLink running on the other PC, and does its firewall allow UDP port 24802?";
+            color: #737885;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        for f in State.found: HorizontalLayout {
+            spacing: 12px;
+            height: 44px;
+            opacity: f.compatible ? 1 : 0.55;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text {
+                        text: f.name;
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+                    Badge {
+                        text: f.role;
+                        fg: f.role == "client" ? Theme.green : #5aa9ff;
+                    }
+                }
+                Text {
+                    text: f.address + "  ·  " + f.fingerprint + (f.compatible ? "" : "  ·  " + f.note);
+                    color: Theme.muted;
+                    font-size: 12px;
+                }
+            }
+            if f.compatible: VerticalLayout {
+                alignment: center;
+                Button {
+                    text: "Add";
+                    primary: true;
+                    tip: "Add it on a free side; then drag it where it sits in the Layout tab";
+                    clicked => { State.add-found(f.name, f.address); }
+                }
+            }
+        }
+    }
+    Card {
+        title: "Add a PC";
+        HorizontalLayout {
+            spacing: 10px;
+            Field {
+                min-width: 200px;
+                max-width: 200px;
+                placeholder: "Name (its computer name)";
+                text <=> State.new-name;
+            }
+            Field {
+                horizontal-stretch: 1;
+                max-width: 100000px;
+                placeholder: "Host or IP, optional (port optional)";
+                text <=> State.new-address;
+            }
+            Button {
+                text: "Add";
+                primary: true;
+                enabled: State.new-name != "";
+                clicked => { State.add-peer(); }
+            }
+        }
+    }
+    Card {
+        title: "Your PCs";
+        for d[i] in State.devices: Rectangle {
+            height: 64px;
+            border-radius: 9px;
+            border-width: 1px;
+            border-color: d.local ? Theme.border : #2c4366;
+            background: d.local ? Theme.sunken : #1a2433;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 14px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: d.local ? Theme.accent : Theme.green;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: d.name;
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+                        Badge {
+                            text: d.local ? "This PC" : d.side;
+                            fg: d.local ? #5aa9ff : Theme.green;
+                        }
+                    }
+                    Text {
+                        text: d.address + "  ·  " + d.fingerprint;
+                        color: Theme.muted;
+                        font-size: 12px;
+                    }
+                }
+                if !d.local: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Remove";
+                        danger: true;
+                        clicked => { State.remove-peer(i - 1); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One entry of an allow list, with Remove.
+component AllowRow inherits Rectangle {
+    in property <string> text;
+    in property <string> tip;
+    callback remove();
+    height: 44px;
+    border-radius: 9px;
+    border-width: 1px;
+    border-color: #2c4366;
+    background: #1a2433;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 8px;
+        spacing: 12px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: Theme.text;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                text: "Remove";
+                danger: true;
+                tip: root.tip;
+                clicked => { root.remove(); }
+            }
+        }
+    }
+}
+
+component SecurityPage inherits ScrollView {
+    VerticalLayout {
+        spacing: 16px;
+        padding-right: 14px;
+        alignment: start;
+        PageTitle {
+            kicker: "SECURITY";
+            title: "Security";
+            subtitle: "Who may connect to this PC. Off: any DeskLink PC in your list (each is trusted on its first connection). On: only from the networks and PCs below.";
+        }
+        Card {
+            Setting {
+                label: "Restrict who can connect";
+                hint: State.sec-enabled
+                    ? (State.sec-networks.length == 0 && State.sec-allowed.length == 0 ? "On, but nothing is restricted yet: add a network or a PC below." : "On: other PCs and networks are refused, in both directions.")
+                    : "Off: the lists below are kept but not used.";
+                Toggle {
+                    on <=> State.sec-enabled;
+                    tip: "Applies to connections this PC makes and to those it accepts";
+                    toggled => { State.changed(); }
+                }
+            }
+            if State.sec-enabled && State.sec-missing.length > 0: Rectangle {
+                border-radius: 9px;
+                border-width: 1px;
+                border-color: #6b5a2a;
+                background: #2b2618;
+                height: warn.preferred-height + 20px;
+                warn := Text {
+                    x: 14px;
+                    width: parent.width - 28px;
+                    text: "Not allowed, so they won't connect: " + State.sec-missing[0] + (State.sec-missing.length > 1 ? " and " + (State.sec-missing.length - 1) + " more" : "") + ". Add them under Allowed PCs, or include their network.";
+                    color: #f0d48a;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            Card {
+                horizontal-stretch: 1;
+                title: "Allowed networks";
+                subtitle: "Network / mask, e.g. 192.168.1.0/24 (a bare address is just that PC). Empty: any network.";
+                for n[i] in State.sec-networks: AllowRow {
+                    text: n;
+                    tip: "Stop allowing this network";
+                    remove => { State.sec-remove-network(i); }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Field {
+                        horizontal-stretch: 1;
+                        max-width: 100000px;
+                        placeholder: "192.168.1.0/24";
+                        text <=> State.sec-new-network;
+                        accepted => { State.sec-add-network(State.sec-new-network); }
+                    }
+                    Button {
+                        text: "Add";
+                        primary: true;
+                        enabled: State.sec-new-network != "";
+                        clicked => { State.sec-add-network(State.sec-new-network); }
+                    }
+                }
+                if State.sec-suggested != "": HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: "Add this PC's network (" + State.sec-suggested + ")";
+                        tip: "The network this PC is on (assumes the usual /24 mask of a home network)";
+                        clicked => { State.sec-add-network(State.sec-suggested); }
+                    }
+                }
+            }
+            Card {
+                horizontal-stretch: 1;
+                title: "Allowed PCs";
+                subtitle: "By computer name or IP address. Empty: any PC (on the allowed networks).";
+                for p[i] in State.sec-allowed: AllowRow {
+                    text: p;
+                    tip: "Stop allowing this PC";
+                    remove => { State.sec-remove-pc(i); }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Field {
+                        horizontal-stretch: 1;
+                        max-width: 100000px;
+                        placeholder: "Name or IP";
+                        text <=> State.sec-new-pc;
+                        accepted => { State.sec-add-pc(State.sec-new-pc); }
+                    }
+                    Button {
+                        text: "Add";
+                        primary: true;
+                        enabled: State.sec-new-pc != "";
+                        clicked => { State.sec-add-pc(State.sec-new-pc); }
+                    }
+                }
+                if State.sec-missing.length > 0: HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    for m in State.sec-missing: Button {
+                        text: "+ " + m;
+                        tip: "Allow " + m + " (from your PCs in Devices)";
+                        clicked => { State.sec-add-pc(m); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LogPage inherits VerticalLayout {
+    spacing: 14px;
+    HorizontalLayout {
+        spacing: 10px;
+        PageTitle {
+            kicker: "ACTIVITY";
+            title: "Log";
+            subtitle: State.log-status;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: end;
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                Text {
+                    text: "Follow";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Toggle {
+                        on <=> State.log-follow;
+                        tip: "Keep showing the newest line";
+                    }
+                }
+                Button {
+                    text: "Copy all";
+                    tip: "Copy the whole log to the clipboard (handy for sending it)";
+                    clicked => { State.log-copy(); }
+                }
+                Button {
+                    text: "Clear";
+                    tip: "Empty this view (DeskLink keeps logging)";
+                    clicked => { State.log-clear(); }
+                }
+            }
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.border;
+        background: #121316;
+        clip: true;
+        list := ListView {
+            for l in State.log-lines: Text {
+                text: l.text;
+                font-family: "Consolas";
+                font-size: 12px;
+                color: l.level == 2 ? Theme.red : l.level == 1 ? Theme.orange : l.level == 3 ? #6b7080 : #c8ccd4;
+                wrap: no-wrap;
+                overflow: elide;
+            }
+        }
+        // New lines arrived: stay at the bottom while following.
+        changed log-version => {
+            if State.log-follow {
+                list.content-y = min(0px, list.visible-height - list.content-height);
+            }
+        }
+        property <int> log-version: State.log-version;
+    }
+}
+
+component SettingsPage inherits ScrollView {
+    VerticalLayout {
+        spacing: 16px;
+        padding-right: 14px;
+        PageTitle {
+            kicker: "SETTINGS";
+            title: "Settings";
+            subtitle: "Saved to " + State.config-path + " as you change them.";
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            VerticalLayout {
+                spacing: 16px;
+                alignment: start;
+                horizontal-stretch: 1;
+                Card {
+                    title: "Clipboard";
+                    Setting {
+                        label: "Share clipboard";
+                        hint: "Sent when you switch PCs, only if it changed. Turn it on on every PC.";
+                        Toggle {
+                            on <=> State.clip-enabled;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Text";
+                        Toggle {
+                            on <=> State.clip-text;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Images";
+                        Toggle {
+                            on <=> State.clip-images;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Largest text or image";
+                        Field {
+                            text <=> State.max-clip-mb;
+                            suffix: "MB";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Respect private content";
+                        hint: "Skip what password managers mark as private.";
+                        Toggle {
+                            on <=> State.clip-private;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                }
+                Card {
+                    title: "Files";
+                    subtitle: "Files are transferred only when pasted or dropped, never ahead of time.";
+                    Setting {
+                        label: "Share files";
+                        Toggle {
+                            on <=> State.clip-files;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Paste";
+                        hint: "Ctrl+V in any app, or ask where to save as soon as you arrive.";
+                        Segmented {
+                            items: ["Ctrl+V", "Ask on arrival"];
+                            tips: ["Paste the other PC's files with Ctrl+V in any app; they transfer only then", "As soon as files arrive from the other PC, ask where to save them"];
+                            current <=> State.files-mode;
+                            selected => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "When a file exists";
+                        Segmented {
+                            items: ["Ask", "Overwrite", "Keep both", "Skip"];
+                            tips: ["Ask each time: Replace, Keep both or Skip (with \"do this for all\")", "Replace the existing file without asking", "Keep both: the new file gets \" (2)\" added to its name", "Keep the existing file; the new one isn't copied"];
+                            current <=> State.on-conflict;
+                            selected => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Largest file";
+                        hint: "0 = unlimited";
+                        Field {
+                            text <=> State.max-file-mb;
+                            suffix: "MB";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Largest copy";
+                        hint: "All files at once. 0 = unlimited";
+                        Field {
+                            text <=> State.max-total-mb;
+                            suffix: "MB";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                }
+                Card {
+                    title: "Cursor";
+                    Setting {
+                        label: "While not in use";
+                        Segmented {
+                            items: ["Hide", "Park only", "Leave"];
+                            tips: ["Make the cursor invisible and park it out of the way", "Keep the cursor visible, but move it to the park spot", "Keep the cursor visible where it crossed to the other PC"];
+                            current <=> State.hide-method;
+                            selected => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Park at";
+                        Segmented {
+                            items: ["Top-left", "Top-right", "Bottom-left", "Bottom-right", "Center"];
+                            corner-icons: true;
+                            tips: ["Top-left corner", "Top-right corner", "Bottom-left corner", "Bottom-right corner", "Center of the main screen"];
+                            current <=> State.park;
+                            selected => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Hide while directing another PC";
+                        Toggle {
+                            on <=> State.hide-directing;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Hide after the other PC's user left";
+                        Toggle {
+                            on <=> State.hide-released;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Show again on mouse move";
+                        Toggle {
+                            on <=> State.reveal-mouse;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Show again on key press";
+                        Toggle {
+                            on <=> State.reveal-keyboard;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Switch at screen corners";
+                        hint: "Off: the corners of the screens don't lead to another PC, so aiming at a close button or the Start button never switches by accident.";
+                        Toggle {
+                            on <=> State.switch-at-corners;
+                            tip: "Only real corners count; where two of your screens meet, the cursor still crosses";
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Corner size";
+                        hint: "Used while switching at corners is off.";
+                        Field {
+                            text <=> State.corner-size;
+                            suffix: "px";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Leave games holding the mouse";
+                        hint: "Off: while a game holds the mouse (pointer hidden, e.g. Unreal's Game mode), the cursor stays in it: no crossing to another PC or onto your other screens. In its menus (UI mode) the cursor moves freely.";
+                        Toggle {
+                            on <=> State.switch-in-fullscreen;
+                            tip: "Open the game's menu, Alt+Tab or press Win to move the cursor freely again";
+                            toggled => { State.changed(); }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 16px;
+                alignment: start;
+                horizontal-stretch: 1;
+                Card {
+                    title: "General";
+                    Setting {
+                        label: "Role";
+                        hint: State.role == 0 ? "Connects only to other peers. Each PC sets up its own neighbours (one per side)." : State.role == 1 ? "Connects only to clients. This PC's keyboard and mouse drive them all." : "Connects only to a master: the first one that connects is kept.";
+                        Segmented {
+                            items: ["Peer", "Master", "Client"];
+                            tips: ["Every PC sets up its own neighbours (up to four, one per side); any PC's keyboard and mouse can move to the others", "This PC's keyboard and mouse drive all the others: it holds the whole layout and finds clients on the network", "Driven by a master only: announces itself on the network and accepts the first master that connects (then only that one)"];
+                            current <=> State.role;
+                            selected => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Run as administrator";
+                        hint: State.is-elevated ? "Running as administrator now. The other PC's keyboard and mouse work in admin windows; dragging files in from normal programs doesn't." : "Lets the other PC's keyboard and mouse use admin windows (Task Manager, installers). Windows asks when DeskLink starts. Dragging files in from normal programs then stops working.";
+                        Toggle {
+                            on <=> State.run-as-admin;
+                            tip: "Windows blocks input from normal programs into programs running as administrator";
+                            toggled(on) => { State.run-as-admin-changed(on); }
+                        }
+                    }
+                    Setting {
+                        label: "Start with Windows";
+                        hint: "DeskLink starts in the tray when you sign in.";
+                        Toggle {
+                            on <=> State.start-with-windows;
+                            toggled(on) => { State.start-with-windows-changed(on); }
+                        }
+                    }
+                }
+                Card {
+                    title: "This PC";
+                    GridLayout {
+                        spacing: 10px;
+                        Row {
+                            Tile {
+                                label: "Name";
+                                value: State.pc-name;
+                            }
+                            Tile {
+                                label: "Port";
+                                value: "UDP " + State.pc-port + " (QUIC)";
+                            }
+                        }
+                        Row {
+                            Tile {
+                                colspan: 2;
+                                label: "Fingerprint (other PCs see this)";
+                                value: State.pc-fingerprint;
+                            }
+                        }
+                    }
+                }
+                Card {
+                    title: "Updates";
+                    Setting {
+                        label: "Version " + State.version;
+                        hint: State.update-text;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            if State.update-kind == 2: Button {
+                                text: "Restart to update";
+                                primary: true;
+                                tip: "DeskLink exits, installs the new version and starts again (a few seconds without sharing)";
+                                clicked => { State.update-apply(); }
+                            }
+                            if State.update-kind != 2: Button {
+                                text: State.update-kind == 1 ? "Checking…" : "Check now";
+                                enabled: State.update-kind == 0 || State.update-kind == 3;
+                                tip: "Look for a new release on GitHub; a new one is downloaded in the background";
+                                clicked => { State.update-check(); }
+                            }
+                        }
+                    }
+                    Setting {
+                        label: "Check automatically";
+                        hint: "A minute after DeskLink starts, then twice a day. It installs when you restart DeskLink.";
+                        Toggle {
+                            on <=> State.auto-update;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                }
+                Card {
+                    title: "Hotkeys";
+                    Setting {
+                        label: "Return to this PC";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            for k in State.hk-return: Keycap { text: k; }
+                        }
+                    }
+                    Setting {
+                        label: "Paste files from the other PC";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            for k in State.hk-paste: Keycap { text: k; }
+                        }
+                    }
+                    Text {
+                        text: "To change them, edit [hotkeys] in desklink.cfg for now.";
+                        color: #737885;
+                        font-size: 11px;
+                    }
+                }
+                Card {
+                    title: "Local use takes over";
+                    subtitle: "Using a controlled PC's own mouse or keyboard takes it back. Tiny mouse drift is ignored.";
+                    Setting {
+                        label: "Minimum mouse move";
+                        hint: "0 = any movement";
+                        Field {
+                            text <=> State.min-move;
+                            suffix: "px";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Within";
+                        Field {
+                            text <=> State.window-ms;
+                            suffix: "ms";
+                            digits: true;
+                            edited => { State.typed(); }
+                            accepted => { State.changed(); }
+                        }
+                    }
+                }
+                Card {
+                    title: "Log";
+                    Setting {
+                        label: "Write a log file";
+                        hint: "desklink.log next to the config.";
+                        Toggle {
+                            on <=> State.log-file;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component App inherits Window {
+    title: "DeskLink";
+    icon: @image-url("icon.png");
+    min-width: 900px;
+    min-height: 600px;
+    background: Theme.bg;
+    default-font-size: 13px;
+
+    in-out property <int> page: 0;
+
+    VerticalLayout {
+        Rectangle {
+            height: 76px;
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 38px;
+                        height: 38px;
+                        source: @image-url("icon.png");
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: "DeskLink";
+                        color: #4d9fff;
+                        font-size: 20px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: State.status;
+                        overflow: elide;
+                        color: State.status-error ? Theme.red : Theme.muted;
+                        font-size: 12px;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        border-radius: 11px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        background: Theme.panel;
+                        HorizontalLayout {
+                            padding: 4px;
+                            Segmented {
+                                items: ["Layout", "Devices", "Settings", "Security", "Log"];
+                                current <=> root.page;
+                                item-width: 84px;
+                                border-width: 0;
+                                background: transparent;
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            // Clicking empty space leaves a text box (it saves on leaving).
+            sink := FocusScope { }
+            TouchArea {
+                clicked => { sink.focus(); }
+            }
+            VerticalLayout {
+                padding: 24px;
+                padding-bottom: 8px;
+                if root.page == 0: LayoutPage {
+                    open-settings => { root.page = 2; }
+                    add-at(side) => {
+                        root.page = 1;
+                    }
+                }
+                if root.page == 1: DevicesPage {
+                    open-settings => { root.page = 2; }
+                }
+                if root.page == 2: SettingsPage { }
+                if root.page == 3: SecurityPage { }
+                if root.page == 4: LogPage { }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-bottom: 12px;
+            height: 34px;
+            Text {
+                text: "DeskLink v0.1.0";
+                color: #5f6470;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+    // Confirmation of a save (or an error) at the bottom, for a moment.
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - (State.toast-shown ? 56px : 24px);
+        width: min(parent.width - 96px, toast-text.preferred-width + 36px);
+        height: toast-text.preferred-height + 18px;
+        border-radius: 18px;
+        border-width: 1px;
+        border-color: State.toast-error ? Theme.red : Theme.green;
+        background: State.toast-error ? #3a1d24 : #17302a;
+        opacity: State.toast-shown ? 1 : 0;
+        animate opacity, y { duration: 180ms; easing: ease-out; }
+        toast-text := Text {
+            width: parent.width - 36px;
+            text: State.toast;
+            color: State.toast-error ? #ffb3c0 : #b4f0d4;
+            font-size: 13px;
+            wrap: word-wrap;
+            horizontal-alignment: center;
+        }
+    }
+    // Tooltip (positions are window coordinates of the hovered control).
+    Rectangle {
+        property <length> below: State.tip-y + State.tip-h + 6px;
+        x: max(8px, min(parent.width - self.width - 8px, State.tip-x + State.tip-w / 2 - self.width / 2));
+        y: below + self.height + 8px > parent.height ? State.tip-y - self.height - 6px : below;
+        width: min(380px, tip-label.preferred-width + 20px);
+        height: tip-label.preferred-height + 12px;
+        visible: State.tip-shown;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #3a3d46;
+        background: #2a2c33;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: #00000080;
+        tip-label := Text {
+            width: parent.width - 20px;
+            text: State.tip-text;
+            color: Theme.text;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}

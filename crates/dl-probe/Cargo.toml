@@ -1,0 +1,19 @@
+[package]
+name = "dl-probe"
+description = "DeskLink diagnostics: exercise capture, injection and the hook watchdog on one machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+desklink-proto.workspace = true
+desklink-win.workspace = true
+desklink-core = { path = "../desklink-core" }
+desklink-net = { path = "../desklink-net" }
+crossbeam-channel.workspace = true
+log.workspace = true
+env_logger.workspace = true
+
+[dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_UI_WindowsAndMessaging"]
