@@ -122,6 +122,9 @@ The PCs it's used on:
 - **Don't drive the user's desktop:** no automated typing or clicking in
   their windows. Never use `desklink.exe run` for checks. No always-on-top
   windows.
+- **README screenshots:** `tools\screenshots.ps1 [-Exe target\debug\desklink.exe]`
+  (uses `desklink settings --page <tab>` and a demo config with a throwaway
+  identity; never this PC's real config, it's a public repo).
 - **Screenshots:** first check the user doesn't have the settings window
   open (single instance brings theirs to the front):
   `Get-Process desklink | Where MainWindowTitle -eq 'DeskLink'`.

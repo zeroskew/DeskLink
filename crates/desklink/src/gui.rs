@@ -467,11 +467,19 @@ fn show_devices(s: &State, cfg: &Config, paths: &Paths) {
 /// The window title; also how a second `desklink settings` finds the window.
 const TITLE: &str = "DeskLink";
 
-pub fn run(paths: &Paths) -> Result<(), String> {
+/// `page`: the tab to open on (layout, devices, settings, security, log).
+pub fn run(paths: &Paths, page: Option<&str>) -> Result<(), String> {
     let Some(_one_window) = desklink_win::instance::settings_lock(TITLE) else {
         return Ok(()); // already open: brought to the front
     };
-    show(paths.clone()).map_err(|e| format!("settings window: {e}"))
+    let page = match page {
+        Some("devices") => 1,
+        Some("settings") => 2,
+        Some("security") => 3,
+        Some("log") => 4,
+        _ => 0,
+    };
+    show(paths.clone(), page).map_err(|e| format!("settings window: {e}"))
 }
 
 /// What the log follower tells the window.
@@ -563,7 +571,7 @@ fn follow_log(app: slint::Weak<App>) {
     });
 }
 
-fn show(paths: Paths) -> Result<(), slint::PlatformError> {
+fn show(paths: Paths, page: i32) -> Result<(), slint::PlatformError> {
     // Windows draws a light title bar unless the window asks for the dark theme.
     slint::BackendSelector::new()
         .backend_name("winit".into())
@@ -572,6 +580,7 @@ fn show(paths: Paths) -> Result<(), slint::PlatformError> {
         .select()?;
 
     let app = App::new()?;
+    app.set_page(page);
     let state = app.global::<State>();
 
     let cfg = match Config::load_or_default(&paths.config) {

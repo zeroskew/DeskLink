@@ -78,13 +78,15 @@ fn main() {
         desklink_win::instance::wait_for_process(pid);
     }
     let paths = Paths::resolve(take_opt(&mut args, "--config").map(PathBuf::from));
+    // `settings --page layout|devices|settings|security|log`: open on that tab.
+    let page = take_opt(&mut args, "--page");
     let migrated = paths.migrate_legacy();
     let command = args.first().map(String::as_str);
     let starting = matches!(command, None | Some("run"));
     if command == Some("settings") || (starting && desklink_win::instance::is_running()) {
         // Its own process, without the log: the running DeskLink owns that.
         // Starting DeskLink again just opens the window.
-        if let Err(e) = gui::run(&paths) {
+        if let Err(e) = gui::run(&paths, page.as_deref()) {
             eprintln!("{e}");
             ui::show_error("DeskLink", &e);
             std::process::exit(1);

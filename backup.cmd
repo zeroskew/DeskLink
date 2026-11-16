@@ -23,7 +23,7 @@ rem Windows' own tar.exe (bsdtar, ships with Windows 10/11): -a picks zip from t
 rem Called by full path so Git's GNU tar on PATH (which can't write zips) isn't used instead.
 "%SystemRoot%\System32\tar.exe" -a -c -f "%ZIP%" ^
     --exclude "*/target" --exclude "*.tmp" --exclude "*.pdb" ^
-    Cargo.toml Cargo.lock crates build.cmd dist.cmd build_publish_exe.cmd backup.cmd README.md HANDOVER.md .gitignore %EXTRA%
+    Cargo.toml Cargo.lock crates build.cmd dist.cmd build_publish_exe.cmd backup.cmd README.md HANDOVER.md .gitignore .gitattributes tools %EXTRA%
 if errorlevel 1 (
     echo Backup FAILED.
     if exist "%ZIP%" del "%ZIP%"

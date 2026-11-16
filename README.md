@@ -4,6 +4,14 @@ One keyboard and mouse for several Windows PCs, like Input Director or Synergy. 
 a screen edge onto the next PC; the clipboard (text, images, files) is shared, and files and
 folders can be dragged from one PC to another. Written in Rust.
 
+![Layout: where the other PCs' screens are](screenshots/layout.png)
+
+| Devices: your PCs, and the ones found on the network | Settings |
+|---|---|
+| ![Devices tab](screenshots/devices.png) | ![Settings tab](screenshots/settings.png) |
+| **Security: who may connect** | |
+| ![Security tab](screenshots/security.png) | |
+
 ## Download
 
 **[Download desklink.zip](https://github.com/zeroskew/DeskLink/releases/latest/download/desklink.zip)**
@@ -58,6 +66,7 @@ Studio 2022 or its Build Tools with **Desktop development with C++** (with a Win
 | `dist.cmd` | `build.cmd build --release` |
 | `build_publish_exe.cmd [-y]` | release build, `desklink.zip`, GitHub release tagged `v<build version>` (needs `gh`, logged in) |
 | `backup.cmd [folder]` | zips the sources and scripts into `backups\` (or the folder) |
+| `tools\screenshots.ps1` | retakes the screenshots above: opens the settings window on each tab with made-up PCs (`tools\screenshot-demo.cfg`) and captures it, without input |
 
     build.cmd build --release          all binaries; dist\ updated
     build.cmd test --workspace         all tests
