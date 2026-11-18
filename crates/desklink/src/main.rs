@@ -265,6 +265,10 @@ struct WinIo<'a> {
     capture: &'a Capture,
     injector: inject::Injector,
     cursor: config::CursorSettings,
+    /// Typing on our own keyboard takes us back from a controlling peer.
+    keyboard_takes_over: bool,
+    /// Clicks / the wheel on our own mouse take us back.
+    clicks_take_over: bool,
     clipboard: Option<&'a ClipboardWorker>,
     /// Commands to run on this machine, drained by the main loop.
     commands: Vec<Command>,
@@ -339,8 +343,11 @@ impl Io for WinIo<'_> {
     }
     fn watch_local_activity(&mut self, purpose: Watch) {
         match purpose {
-            Watch::Reveal => self.capture.watch_activity(self.cursor.reveal_on_mouse, self.cursor.reveal_on_keyboard),
-            Watch::Takeover => self.capture.watch_activity(true, true),
+            Watch::Reveal => {
+                let c = &self.cursor;
+                self.capture.watch_activity(c.reveal_on_mouse, c.reveal_on_mouse, c.reveal_on_keyboard)
+            }
+            Watch::Takeover => self.capture.watch_activity(true, self.clicks_take_over, self.keyboard_takes_over),
         }
     }
     fn game_holds_mouse(&mut self) -> bool {
@@ -612,6 +619,8 @@ fn run(
         capture: &capture,
         injector: inject::Injector::new(),
         cursor: cfg.cursor.clone(),
+        keyboard_takes_over: cfg.local_activity.keyboard_takes_over,
+        clicks_take_over: cfg.local_activity.clicks_take_over,
         clipboard: clip.as_ref(),
         commands: Vec::new(),
         catcher: catcher.as_ref(),
@@ -1126,6 +1135,8 @@ fn apply_live(cfg: &Config, core: &mut Core, io: &mut WinIo<'_>, capture: &Captu
         core.set_skip(i, p.unplaced);
     }
     io.cursor = cfg.cursor.clone();
+    io.keyboard_takes_over = cfg.local_activity.keyboard_takes_over;
+    io.clicks_take_over = cfg.local_activity.clicks_take_over;
     core.set_corner_guard(corner_guard(cfg));
     core.set_fullscreen_guard(!cfg.cursor.switch_in_fullscreen);
     core.set_park((cfg.cursor.method != config::HideMethod::None).then(|| cfg.cursor.park.into()));

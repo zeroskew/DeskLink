@@ -120,6 +120,7 @@ struct Shared {
     stall_count: AtomicU32,
     /// Report the next physical mouse / keyboard input as `LocalActivity`.
     watch_mouse: AtomicBool,
+    watch_buttons: AtomicBool,
     watch_keyboard: AtomicBool,
     /// Micro-drift filter: net movement needed within the window.
     drift_min_px: AtomicU32,
@@ -161,6 +162,7 @@ impl Capture {
             stall_ms: AtomicU32::new(0),
             stall_count: AtomicU32::new(0),
             watch_mouse: AtomicBool::new(false),
+            watch_buttons: AtomicBool::new(false),
             watch_keyboard: AtomicBool::new(false),
             drift_min_px: AtomicU32::new(DEFAULT_DRIFT_MIN_PX),
             drift_window_ms: AtomicU32::new(DEFAULT_DRIFT_WINDOW_MS),
@@ -241,9 +243,11 @@ impl Capture {
     }
 
     /// Emit one `LocalActivity` on the next physical mouse and/or keyboard
-    /// input (not ours, not while grabbed). Clears both when it fires.
-    pub fn watch_activity(&self, mouse: bool, keyboard: bool) {
+    /// input (not ours, not while grabbed). `mouse`: movement; `buttons`:
+    /// mouse buttons and the wheel. Clears all when it fires.
+    pub fn watch_activity(&self, mouse: bool, buttons: bool, keyboard: bool) {
         self.shared.watch_mouse.store(mouse, Relaxed);
+        self.shared.watch_buttons.store(buttons, Relaxed);
         self.shared.watch_keyboard.store(keyboard, Relaxed);
     }
 
@@ -622,11 +626,16 @@ impl HookCtx {
         self.shared.watch_mouse.load(Relaxed)
     }
 
-    fn check_activity(&mut self, mouse: bool) {
+    fn check_activity(&mut self, kind: Activity) {
         let s = &self.shared;
-        let w = if mouse { &s.watch_mouse } else { &s.watch_keyboard };
+        let w = match kind {
+            Activity::Move => &s.watch_mouse,
+            Activity::Button => &s.watch_buttons,
+            Activity::Key => &s.watch_keyboard,
+        };
         if !self.grabbed && w.load(Relaxed) && w.swap(false, Relaxed) {
             s.watch_mouse.store(false, Relaxed);
+            s.watch_buttons.store(false, Relaxed);
             s.watch_keyboard.store(false, Relaxed);
             self.emit(CaptureEvent::LocalActivity);
         }
@@ -645,7 +654,7 @@ impl HookCtx {
         self.maybe_stall();
         self.sync_grab();
         self.check_consumer();
-        self.check_activity(false);
+        self.check_activity(Activity::Key);
 
         let down = matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN);
         if down {
@@ -690,11 +699,11 @@ impl HookCtx {
                 let s = &self.shared;
                 let (px, win) = (s.drift_min_px.load(Relaxed), s.drift_window_ms.load(Relaxed));
                 if self.drift.feed((ms.pt.x, ms.pt.y), ms.time, px, win) {
-                    self.check_activity(true);
+                    self.check_activity(Activity::Move);
                 }
             }
         } else {
-            self.check_activity(true);
+            self.check_activity(Activity::Button);
         }
 
         let button = |down| {
@@ -760,6 +769,14 @@ impl HookCtx {
             }
         }
     }
+}
+
+/// Kinds of local input `watch_activity` can listen for.
+#[derive(Clone, Copy)]
+enum Activity {
+    Move,
+    Button,
+    Key,
 }
 
 fn inject_mask_key() {

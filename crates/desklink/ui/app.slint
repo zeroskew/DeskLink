@@ -109,6 +109,8 @@ export global State {
     // Local activity
     in-out property <string> min-move;
     in-out property <string> window-ms;
+    in-out property <bool> keyboard-takeover;
+    in-out property <bool> clicks-takeover;
 
     // Hotkeys (shown as key caps)
     in property <[string]> hk-return;
@@ -1614,7 +1616,7 @@ component SettingsPage inherits ScrollView {
                 }
                 Card {
                     title: "Local use takes over";
-                    subtitle: "Using a controlled PC's own mouse or keyboard takes it back. Tiny mouse drift is ignored.";
+                    subtitle: "Moving a controlled PC's own mouse takes it back. Tiny mouse drift is ignored.";
                     Setting {
                         label: "Minimum mouse move";
                         hint: "0 = any movement";
@@ -1634,6 +1636,22 @@ component SettingsPage inherits ScrollView {
                             digits: true;
                             edited => { State.typed(); }
                             accepted => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Typing takes over too";
+                        hint: "Off: keys pressed on that PC work there; the cursor stays.";
+                        Toggle {
+                            on <=> State.keyboard-takeover;
+                            toggled => { State.changed(); }
+                        }
+                    }
+                    Setting {
+                        label: "Clicks take over too";
+                        hint: "Off: clicks and the wheel on that PC's mouse work there; the cursor stays.";
+                        Toggle {
+                            on <=> State.clicks-takeover;
+                            toggled => { State.changed(); }
                         }
                     }
                 }

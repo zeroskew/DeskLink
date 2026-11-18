@@ -232,10 +232,16 @@ impl Default for CursorSettings {
 #[serde(default)]
 pub struct LocalActivity {
     /// Micro-drift protection: net mouse movement (physical pixels) needed
-    /// within `window_ms`. Keys, buttons and the wheel always count.
+    /// within `window_ms`.
     /// 0 = any movement counts.
     pub min_mouse_move: u32,
     pub window_ms: u32,
+    /// Does typing on a controlled PC's own keyboard take it back? Off: the
+    /// keys work there and the controlling PC keeps the cursor.
+    pub keyboard_takes_over: bool,
+    /// Do clicks and the wheel on a controlled PC's own mouse take it back?
+    /// (Moving it always does.)
+    pub clicks_take_over: bool,
 }
 
 impl Default for LocalActivity {
@@ -243,6 +249,8 @@ impl Default for LocalActivity {
         LocalActivity {
             min_mouse_move: DEFAULT_DRIFT_MIN_PX,
             window_ms: DEFAULT_DRIFT_WINDOW_MS,
+            keyboard_takes_over: false,
+            clicks_take_over: false,
         }
     }
 }
@@ -458,8 +466,10 @@ aiming at a close button or the Start button never does by accident."),
 you play, like Unreal's Game mode). Off: meanwhile the cursor stays in the
 game: it neither crosses to another PC nor slides onto this PC's other
 screens. In the game's menus (pointer shown) it moves freely."),
-    ("local_activity", "min_mouse_move", "Micro-drift protection. Mouse movement on this machine's own mouse counts\nas \"someone is using this machine\" (takes it back from a controlling\nmachine, reveals the cursor) only after moving this many physical pixels\nwithin `window_ms`. Keys, buttons and the wheel always count. 0 = any movement."),
+    ("local_activity", "min_mouse_move", "Micro-drift protection. Mouse movement on this machine's own mouse counts\nas \"someone is using this machine\" (takes it back from a controlling\nmachine, reveals the cursor) only after moving this many physical pixels\nwithin `window_ms`. 0 = any movement."),
     ("local_activity", "window_ms", "Time window for `min_mouse_move`, in milliseconds."),
+    ("local_activity", "keyboard_takes_over", "Typing on this machine's own keyboard while another machine controls it\ntakes it back. Off: the keys just work here and the cursor stays with the\ncontrolling machine (moving its own mouse still takes it back)."),
+    ("local_activity", "clicks_take_over", "Clicks and the wheel on this machine's own mouse while another machine\ncontrols it take it back. Off: they work here and the cursor stays with the\ncontrolling machine (moving the mouse still takes it back)."),
     ("clipboard", "enabled", "Share the clipboard with other machines (enable it on all of them)."),
     ("clipboard", "max_size_mb", "Largest text/image clipboard shared, in MB (files: see max_file_mb)."),
     ("clipboard", "respect_private", "Never share content that password managers mark as private."),

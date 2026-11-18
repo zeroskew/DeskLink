@@ -301,6 +301,8 @@ fn read_settings(s: &State, cfg: &mut Config) -> Result<(), String> {
     let a = &mut cfg.local_activity;
     a.min_mouse_move = number(&s.get_min_move(), "Minimum mouse move")? as u32;
     a.window_ms = number(&s.get_window_ms(), "Within")? as u32;
+    a.keyboard_takes_over = s.get_keyboard_takeover();
+    a.clicks_take_over = s.get_clicks_takeover();
     cfg.log.file = s.get_log_file();
     cfg.role = ROLES[s.get_role().clamp(0, 2) as usize];
     cfg.run_as_admin = s.get_run_as_admin();
@@ -338,6 +340,8 @@ fn show_settings(s: &State, cfg: &Config, paths: &Paths) {
     s.set_switch_in_fullscreen(k.switch_in_fullscreen);
     s.set_min_move(cfg.local_activity.min_mouse_move.to_string().into());
     s.set_window_ms(cfg.local_activity.window_ms.to_string().into());
+    s.set_keyboard_takeover(cfg.local_activity.keyboard_takes_over);
+    s.set_clicks_takeover(cfg.local_activity.clicks_take_over);
     s.set_hk_return(keycaps(&cfg.hotkeys.return_to_local));
     s.set_hk_paste(keycaps(&cfg.hotkeys.paste_files));
     s.set_log_file(cfg.log.file);
